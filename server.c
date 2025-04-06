@@ -18,6 +18,8 @@
 #define LISTENQ 			200	 /*maximum number of client connections*/
 #define CACHE				"./cache/"
 #define GET_METHOD	 		"GET"
+#define VERSION_0 			"HTTP/1.0"
+#define VERSION_1 			"HTTP/1.1"
 #define CRLF 				"\r\n"
 #define BUF_SIZE			64*1024
 
@@ -196,6 +198,12 @@ int parse_request(char* buf, char* header, ParsedURL* parsed_url) {
 	// Error if not using GET
 	if (strcmp(method, GET_METHOD)) {
 		sprintf(header, "400 Bad Request\r\n\r\n");
+		return EXIT_FAILURE;
+	}
+
+	// Error if wrong versions
+	if ((strcmp(version, VERSION_0) != 0) && (strcmp(version, VERSION_1) != 0)) {
+		sprintf(header, "505 HTTP Version Not Supported\r\n\r\n");
 		return EXIT_FAILURE;
 	}
 
