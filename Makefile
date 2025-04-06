@@ -20,7 +20,7 @@ $(EXEC_CLIENT): $(OBJ_CLIENT)
 	$(CC) $(OBJ_CLIENT) -o $(EXEC_CLIENT)
 
 $(EXEC_SERVER): $(OBJ_SERVER)
-	$(CC) $(OBJ_SERVER) -o $(EXEC_SERVER)
+	$(CC) $(OBJ_SERVER) -o $(EXEC_SERVER) -lcrypto
 
 $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(OBJ_DIR)

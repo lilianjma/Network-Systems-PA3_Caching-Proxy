@@ -1,0 +1,14 @@
+HTTP/1.1 301 Moved Permanently
+Connection: close
+Content-Length: 0
+Server: Varnish
+Retry-After: 0
+Location: https://www.colorado.edu/
+Accept-Ranges: bytes
+Date: Sun, 06 Apr 2025 22:05:17 GMT
+Via: 1.1 varnish
+Strict-Transport-Security: max-age=300
+X-Served-By: cache-den-kden1300076-DEN
+X-Cache: HIT
+X-Cache-Hits: 0
+

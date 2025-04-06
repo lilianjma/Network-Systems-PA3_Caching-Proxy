@@ -6,6 +6,7 @@ Compile and Run:
 Sources used:
     https://www.cs.dartmouth.edu/~campbell/cs50/socketprogramming.html -- basis of the forking
     https://stackoverflow.com/questions/4217037/catch-ctrl-c-in-c -- Handle ctrl c gracefully
+    https://stackoverflow.com/questions/726122/best-ways-of-parsing-a-url-using-c -- Parse URL
 
 Notes:
 (echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10; echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10;  echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n") | nc 127.0.0.1 9000
@@ -13,3 +14,27 @@ Notes:
 echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n" | nc 127.0.0.1 9000
 
 HELO header returns 400 --- I did not get these points
+
+
+Questions:
+How to know if client requests certian portno?
+How many processes to handle caching and fetching?
+Can forking use mutexes and semaphores?
+
+Notes:
+    Problem: when two or more try to get same file at same time
+    Solution:
+        Shared array
+        Cache
+        Processes that handle caching and fetching data
+        Processes that handle client
+
+Design Notes:
+    Clear cache when ctrl c
+
+What I need to do right now:
+    - Parse client request
+        - Send Error for: not using GET, server cant connect
+    - Turn filename into MD5 hash
+    - See if file is in cache and not expired
+    - If file is not in cache, add it to cache and send it to client
