@@ -21,7 +21,7 @@
 #define VERSION_0 			"HTTP/1.0"
 #define VERSION_1 			"HTTP/1.1"
 #define CRLF 				"\r\n"
-#define BUF_SIZE			64*1024
+#define BUF_SIZE			256*1024
 
 // LilianTODO: figure out why nothing in the file created
 int serverfd = -1;
@@ -364,14 +364,18 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
     // Read response from server and save to file
     char buffer[BUF_SIZE];
     ssize_t bytes_read;
+	bzero(buffer, sizeof(buffer));
     
     while ((bytes_read = read(serverfd, buffer, BUF_SIZE)) > 0) {
+		printf("Bytes read: %zd\n", bytes_read);
         fwrite(buffer, 1, bytes_read, file);
+		bzero(buffer, sizeof(buffer));
     }
     
     // Close the file and server socket
     fclose(file);
     close(serverfd);
+	printf("File saved to cache\n");
     return 1;
 }
 
