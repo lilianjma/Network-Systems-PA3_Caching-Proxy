@@ -292,12 +292,12 @@ int in_cache(char* hash_str) {
 }
 
 int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) {
-	printf("add_file_to_cache\n");
-	struct sockaddr_in server_addr;
+    printf("add_file_to_cache\n");
+    struct sockaddr_in server_addr;
     int serverfd;
-	struct hostent *he;
-	
-	// Get hostname
+    struct hostent *he;
+
+    // Get hostname
     if ((he = gethostbyname(url->host)) == NULL) {
         // Send 404 not found if hostname can't be resolved
         strcpy("HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>404 Not Found</h1><p>Could not resolve hostname.</p></body></html>", req);
@@ -310,34 +310,34 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
         printf("Server socket creation failed");
         return 0;
     }
-    
+
     // Setup server address
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(url->port);
     memcpy(&server_addr.sin_addr, he->h_addr_list[0], he->h_length);
-    
+
     // Connect to server
     if (connect(serverfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         printf("Connection to server failed");
         close(serverfd);
         return 0;
     }
-    
+
     // Send request to server
     if (write(serverfd, req, strlen(req)) < 0) {
         printf("Request send failed");
         close(serverfd);
         return 0;
     }
-    
+
     // Create file
     char filepath[strlen(CACHE) + 32 + 32 + 1];
-	bzero(filepath, sizeof(filepath));
-	strcpy(filepath, CACHE);
-	strcat(filepath, file_hash);
-	
-	// Get the current time and convert to hex string
+    bzero(filepath, sizeof(filepath));
+    strcpy(filepath, CACHE);
+    strcat(filepath, file_hash);
+
+    // Get the current time and convert to hex string
     time_t current_time = time(NULL);
     if (current_time == ((time_t)-1)) {
         perror("Failed to get the current time");
@@ -347,35 +347,63 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
     char hex_timestamp[33];
     snprintf(hex_timestamp, sizeof(hex_timestamp), "%032lx", (unsigned long)current_time);
     printf("Current time: %s\n", hex_timestamp);
-	hex_timestamp[32] = '\0';
-	
-	// Append the timestamp to the file name
-	strcat(filepath, hex_timestamp);
+    hex_timestamp[32] = '\0';
 
-	printf("filepath = %s\n", filepath);
-    
-    FILE *file = fopen(filepath, "wb");
-    if (file == NULL) {
-        printf("Failed to create response file");
+    // Append the timestamp to the file name
+    strcat(filepath, hex_timestamp);
+
+    printf("filepath = %s\n", filepath);
+
+    // Open the file using file descriptor
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        perror("Error creating file");
         close(serverfd);
         return 0;
     }
-    
+
+    // Lock the file
+    while (flock(fd, LOCK_EX | LOCK_NB) == -1) {
+		sleep(((float)rand() / (float)RAND_MAX) * 0.1); // Sleep for a random time between 0 and 0.1 seconds before trying again
+    }
+
     // Read response from server and save to file
     char buffer[BUF_SIZE];
     ssize_t bytes_read;
-	bzero(buffer, sizeof(buffer));
-    
+    bzero(buffer, sizeof(buffer));
+
     while ((bytes_read = read(serverfd, buffer, BUF_SIZE)) > 0) {
-		printf("Bytes read: %zd\n", bytes_read);
-        fwrite(buffer, 1, bytes_read, file);
-		bzero(buffer, sizeof(buffer));
+        printf("Bytes read: %zd\n", bytes_read);
+        if (write(fd, buffer, bytes_read) < 0) {
+            perror("Error writing to file");
+            close(fd);
+            close(serverfd);
+            return 0;
+        }
+		if (buffer[bytes_read-1] == '\0') { 
+			break;
+		}
+        bzero(buffer, sizeof(buffer));
     }
-    
+
+	if (bytes_read == 0) {
+		printf("End of file reached\n");
+	}
+
+    if (bytes_read < 0) {
+        perror("Error reading from server");
+    }
+
+	if (flock(fd, LOCK_UN) == -1) {
+        perror("Error unlocking file");
+        close(fd);
+        return 0;
+    }
+
     // Close the file and server socket
-    fclose(file);
+    close(fd);
     close(serverfd);
-	printf("File saved to cache\n");
+    printf("File saved to cache\n");
     return 1;
 }
 
@@ -383,7 +411,7 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
 int send_file(int clientfd, char* filename) {
 	printf("send_file\n");
 
-    FILE *file = NULL;
+    int fd = -1;
     char buffer[BUF_SIZE];
     size_t bytesRead;
 	struct dirent *entry;
@@ -401,8 +429,8 @@ int send_file(int clientfd, char* filename) {
             snprintf(filepath, sizeof(filepath), "%s%s", CACHE, entry->d_name);
 
             // Open the file
-            file = fopen(filepath, "rb");
-            if (file == NULL) {
+            fd = open(filepath, O_RDONLY);
+            if (fd < 0) {
                 perror("Error opening file");
                 closedir(dir);
                 return -1;
@@ -413,23 +441,38 @@ int send_file(int clientfd, char* filename) {
         }
     }
     
+	 // Lock the file for reading
+	 if (flock(fd, LOCK_SH) == -1) {
+		perror("Error locking file for reading");
+		close(fd);
+		closedir(dir);
+		return -1;
+	}
+
 	// Send file content
-    while ((bytesRead = fread(buffer, 1, BUF_SIZE, file)) > 0) {
+    while ((bytesRead = read(fd, buffer, BUF_SIZE)) > 0) {
         if (send(clientfd, buffer, bytesRead, 0) == -1) {
             perror("Error sending file data");
-            fclose(file);
+            close(fd);
             return -1;
         }
     }
 
-    // Check for errors in reading file
-    if (ferror(file)) {
+	// Check for errors in reading file
+    if (bytesRead < 0) {
         perror("Error reading file");
-        fclose(file);
+        flock(fd, LOCK_UN);
+        close(fd);
         return -1;
     }
 
-    fclose(file);
+    // Unlock the file and close the file descriptor
+    if (flock(fd, LOCK_UN) == -1) {
+        perror("Error unlocking file");
+    }
+
+    close(fd);
+    printf("File sent successfully\n");
     return EXIT_SUCCESS;
 }
 
