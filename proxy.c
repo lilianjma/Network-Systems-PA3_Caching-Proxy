@@ -262,13 +262,12 @@ int in_cache(char* hash_str) {
 				file_time = (time_t)strtoul(hex_timestamp, NULL, 16);
 				printf("Extracted time_t: %ld\n", file_time);
 				printf("Current time: %ld\n", time(NULL) - file_time);
+
 				if (time(NULL) - file_time < timeout_value) {
 					printf("File is still valid in cache\n");
 					closedir(dir);
             		return 1;  // File found
-				} else {
-					// printf("File is expired, removing from cache\n");
-					// remove file from cache
+				} else { // remove file from cache
 					char filepath[strlen(CACHE) + 32 + 1 + 32];
 					bzero(filepath, sizeof(filepath));
 					strcpy(filepath, CACHE);
@@ -293,6 +292,7 @@ int in_cache(char* hash_str) {
 
 int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) {
     printf("add_file_to_cache\n");
+
     struct sockaddr_in server_addr;
     int serverfd;
     struct hostent *he;
@@ -300,7 +300,7 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
     // Get hostname
     if ((he = gethostbyname(url->host)) == NULL) {
         // Send 404 not found if hostname can't be resolved
-        strcpy("HTTP/1.1 404 Not Found\r\n\r\n<html><body><h1>404 Not Found</h1><p>Could not resolve hostname.</p></body></html>", req);
+        strcpy("404 Not Found\r\n\r\n", req);
         write(clientfd, req, strlen(req));
         return 0;
     }
@@ -330,6 +330,25 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
         close(serverfd);
         return 0;
     }
+
+	// Check if Dynamic
+	if (strchr(url->page, '?') != NULL) {
+		// Read response from server and forward to client
+        char buffer[BUF_SIZE];
+        ssize_t bytes_read;
+        while ((bytes_read = read(serverfd, buffer, BUF_SIZE)) > 0) {
+            if (write(clientfd, buffer, bytes_read) < 0) {
+                perror("Error forwarding response to client");
+                close(serverfd);
+                return 0;
+            }
+			if (buffer[bytes_read-1] == '\0') { break; }
+        }
+		if (bytes_read < 0) {
+			perror("Error reading from server");
+		}
+		return 1;
+	}
 
     // Create file
     char filepath[strlen(CACHE) + 32 + 32 + 1];
@@ -380,9 +399,11 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
             close(serverfd);
             return 0;
         }
+		
 		if (buffer[bytes_read-1] == '\0') { 
 			break;
 		}
+		
         bzero(buffer, sizeof(buffer));
     }
 
