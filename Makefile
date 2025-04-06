@@ -7,11 +7,11 @@ OBJ_DIR = obj
 
 # Files
 SRC_CLIENT = client.c
-SRC_SERVER = server.c
+SRC_SERVER = proxy.c
 OBJ_CLIENT = $(OBJ_DIR)/client.o
-OBJ_SERVER = $(OBJ_DIR)/server.o
+OBJ_SERVER = $(OBJ_DIR)/proxy.o
 EXEC_CLIENT = ./client
-EXEC_SERVER = ./server
+EXEC_SERVER = ./proxy
 
 # Targets
 all: $(EXEC_CLIENT) $(EXEC_SERVER)
