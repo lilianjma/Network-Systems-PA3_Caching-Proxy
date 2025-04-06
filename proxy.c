@@ -386,10 +386,6 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
         bzero(buffer, sizeof(buffer));
     }
 
-	if (bytes_read == 0) {
-		printf("End of file reached\n");
-	}
-
     if (bytes_read < 0) {
         perror("Error reading from server");
     }
