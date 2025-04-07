@@ -7,6 +7,7 @@ Sources used:
     https://www.cs.dartmouth.edu/~campbell/cs50/socketprogramming.html -- basis of the forking
     https://stackoverflow.com/questions/4217037/catch-ctrl-c-in-c -- Handle ctrl c gracefully
     https://stackoverflow.com/questions/726122/best-ways-of-parsing-a-url-using-c -- Parse URL
+    https://stackoverflow.com/questions/1085083/how-to-use-regular-expressions-in-c -- Use Regex for blocklist
 
 Notes:
 (echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10; echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-alive\r\n\r\n"; sleep 10;  echo -en "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: Close\r\n\r\n") | nc 127.0.0.1 9000
@@ -38,3 +39,6 @@ What I need to do right now:
     - Turn filename into MD5 hash
     - See if file is in cache and not expired
     - If file is not in cache, add it to cache and send it to client
+
+Test Websites:
+    - http://httpforever.com/

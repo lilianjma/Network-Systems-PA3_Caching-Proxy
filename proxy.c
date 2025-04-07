@@ -13,17 +13,18 @@
 #include <time.h>
 #include <dirent.h>
 #include <pthread.h>
+#include <regex.h>
 
 #define MAXLINE 			4096 /*max text line length*/
 #define LISTENQ 			200	 /*maximum number of client connections*/
 #define CACHE				"./cache/"
+#define BLOCKLIST			"./blocklist"
 #define GET_METHOD	 		"GET"
 #define VERSION_0 			"HTTP/1.0"
 #define VERSION_1 			"HTTP/1.1"
 #define CRLF 				"\r\n"
-#define BUF_SIZE			256*1024
+#define BUF_SIZE			64*1024
 
-// LilianTODO: figure out why nothing in the file created
 int serverfd = -1;
 int timeout_value;
 
@@ -35,11 +36,6 @@ typedef struct {
     char page[1024];
 } ParsedURL;
 
-// typedef struct { TODOD
-// 	 char hash[33]; // MD5 hash returns in hexadecimal
-// 	 char timestamp[33]; // max of time_t is 8 bytes + null
-// } CachedFile;
-
 
 void INThandler(int);
 int client_handler(int clientfd, char* buf);
@@ -49,6 +45,7 @@ void get_hash_str(char* str, char* hash_str);	// Works
 int in_cache(char* hash_str);	// Works
 int add_file_to_cache(int clientfd, char* buf, ParsedURL* url, char* file_hash);
 int send_file(int clientfd, char* filename);	// Works
+int check_blocklist(char* filename);
 
 /**
  * Method: 	main
@@ -141,9 +138,18 @@ int client_handler(int clientfd, char* buf) {
 	char filename[128];
 	char file_hash[33];
 	ParsedURL url;
-	
+	bzero(header, sizeof(header));
+
 	// Parse request
 	if (parse_request(buf, header, &url) == EXIT_FAILURE) {
+		send(clientfd, header, strlen(header), 0);
+		return -1;
+	}
+
+	// Check if host is in blocklist
+	if (check_blocklist(url.host) == 1) {
+		printf("Host %s is in blocklist\n", url.host);
+		sprintf(header, "403 Forbidden\r\n\r\n");
 		send(clientfd, header, strlen(header), 0);
 		return -1;
 	}
@@ -158,9 +164,9 @@ int client_handler(int clientfd, char* buf) {
 	// Check if file exists in cache
 	if (!in_cache(file_hash)) {
 		add_file_to_cache(clientfd, buf, &url, file_hash);
+	} else {
+		send_file(clientfd, file_hash);
 	}
-
-	send_file(clientfd, file_hash);
 	
 	return 0;
 }
@@ -190,13 +196,14 @@ int parse_request(char* buf, char* header, ParsedURL* parsed_url) {
 	char method[12];
 	char url[256];
 	char version[12];
+	int scan_result;
 
     // Parse request from client
-    sscanf(buf, "%s %s %s", method, url, version);
+    scan_result = sscanf(buf, "%s %s %s", method, url, version);
 	strcpy(parsed_url->full_url, url);
 
-	// Error if not using GET
-	if (strcmp(method, GET_METHOD)) {
+	// Error if not using GET or not enough arguments
+	if (strcmp(method, GET_METHOD) || scan_result != 3) {
 		sprintf(header, "400 Bad Request\r\n\r\n");
 		return EXIT_FAILURE;
 	}
@@ -215,6 +222,59 @@ int parse_request(char* buf, char* header, ParsedURL* parsed_url) {
 	}
 
 	return EXIT_SUCCESS;
+}
+
+/**
+ * source: https://stackoverflow.com/questions/1085083/how-to-use-regular-expressions-in-c
+ */
+int check_blocklist(char* hostname) {
+	regex_t regex;
+	int reti;
+	char msgbuf[100];
+	
+	FILE *file = fopen(BLOCKLIST, "r");
+    if (!file) {
+        perror("Failed to open blocklist file");
+        return -1;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        // Strip newline character
+        line[strcspn(line, "\n")] = '\0';
+
+		/* Compile regular expression */
+		reti = regcomp(&regex, line, 0);
+		if (reti) {
+			fprintf(stderr, "Could not compile regex\n");
+			fclose(file);
+			return -1;
+		}
+
+		/* Execute regular expression */
+		reti = regexec(&regex, hostname, 0, NULL, 0);
+		if (!reti) {
+			puts("Match");
+			return 1;  // Match found
+		}
+		else if (reti == REG_NOMATCH) {
+			puts("No match");
+		}
+		else {
+			regerror(reti, &regex, msgbuf, sizeof(msgbuf));
+			fprintf(stderr, "Regex match failed: %s\n", msgbuf);
+			fclose(file);
+			regfree(&regex);
+			return EXIT_FAILURE;
+		}
+
+		/* Free memory allocated to the pattern buffer by regcomp() */
+		regfree(&regex);
+    }
+
+    fclose(file);
+    return 0;
+
 }
 
 /**
@@ -399,11 +459,17 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
             close(serverfd);
             return 0;
         }
-		
+		// Forward response to client
+		if (write(clientfd, buffer, bytes_read) < 0) {
+			perror("Error forwarding response to client");
+			close(serverfd);
+			return 0;
+		}
+
 		if (buffer[bytes_read-1] == '\0') { 
 			break;
 		}
-		
+
         bzero(buffer, sizeof(buffer));
     }
 

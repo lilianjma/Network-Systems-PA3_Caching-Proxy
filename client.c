@@ -58,6 +58,7 @@ int main(int argc, char **argv)
 		}
 		printf("%s", "String received from the server: ");
 		fputs(recvline, stdout);
+		bzero(recvline, sizeof(recvline));
 	}
 
 	exit(0);
