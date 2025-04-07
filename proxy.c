@@ -40,12 +40,13 @@ typedef struct {
 void INThandler(int);
 int client_handler(int clientfd, char* buf);
 
-int parse_request(char* buf, char* header, ParsedURL* url);// Works
-void get_hash_str(char* str, char* hash_str);	// Works
-int in_cache(char* hash_str);	// Works
+int parse_request(char* buf, char* header, ParsedURL* url);
+void get_hash_str(char* str, char* hash_str);
+int in_cache(char* hash_str);
 int add_file_to_cache(int clientfd, char* buf, ParsedURL* url, char* file_hash);
-int send_file(int clientfd, char* filename);	// Works
+int send_file(int clientfd, char* filename);
 int check_blocklist(char* filename);
+int link_prefetch(int clientfd, char* filename);
 
 /**
  * Method: 	main
@@ -114,6 +115,7 @@ int main(int argc, char **argv)
 				printf("~~~~ String received from the client: "); puts(buf);
 				client_handler(clientfd, buf);
 				bzero(buf, sizeof(buf));
+				
 			}
 
 			if (n < 0)
@@ -557,6 +559,27 @@ int send_file(int clientfd, char* filename) {
     close(fd);
     printf("File sent successfully\n");
     return EXIT_SUCCESS;
+}
+
+/**
+ * link_prefetch
+ * Add links from file into cache
+ */
+int link_prefetch(char* buf) {
+	char* link_start = strstr(buf, "<a href=\"");
+	
+	while (link_start != NULL) {
+		link_start += 9; // len("<a href=\"") = 9
+		char* link_end = strchr(link_start, '\"');
+		if (link_end != NULL) {
+			*link_end = '\0';
+			printf("	Link: %s\n", link_start);
+			*link_end = '\"'; // Restore end quote
+		}
+
+		link_start = strstr(link_end + 1, "<a href=\"");
+	}
+	return EXIT_SUCCESS;
 }
 
 
