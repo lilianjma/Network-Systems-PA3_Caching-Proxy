@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <pthread.h>
 #include <regex.h>
+#include <limits.h>
 
 #define MAXLINE 			4096 /*max text line length*/
 #define LISTENQ 			200	 /*maximum number of client connections*/
@@ -46,7 +47,7 @@ int in_cache(char* hash_str);
 int add_file_to_cache(int clientfd, char* buf, ParsedURL* url, char* file_hash);
 int send_file(int clientfd, char* filename);
 int check_blocklist(char* filename);
-int link_prefetch(int clientfd, char* filename);
+int link_prefetch(char* filename);
 
 /**
  * Method: 	main
@@ -115,7 +116,7 @@ int main(int argc, char **argv)
 				printf("~~~~ String received from the client: "); puts(buf);
 				client_handler(clientfd, buf);
 				bzero(buf, sizeof(buf));
-				
+
 			}
 
 			if (n < 0)
@@ -398,16 +399,35 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
 		// Read response from server and forward to client
         char buffer[BUF_SIZE];
         ssize_t bytes_read;
+		int content_length = INT_MAX;
+		ssize_t bytes_written = 0;
+
         while ((bytes_read = read(serverfd, buffer, BUF_SIZE)) > 0) {
-            if (write(clientfd, buffer, bytes_read) < 0) {
+            if (bytes_read < 0) {
+				perror("Error reading from server");
+			}
+			
+			if (write(clientfd, buffer, bytes_read) < 0) {
                 perror("Error forwarding response to client");
                 close(serverfd);
                 return 0;
             }
-			if (buffer[bytes_read-1] == '\0') { break; }
-        }
-		if (bytes_read < 0) {
-			perror("Error reading from server");
+			link_prefetch(buffer); // Prefetch links
+
+			// Get Content-Length from header
+			if (content_length == INT_MAX) {
+				char* content_length_str = strstr(buffer, "Content-Length:");
+				if (content_length_str != NULL) {
+					sscanf(content_length_str, "Content-Length: %d", &content_length);
+					printf("Content-Length: %d\n", content_length);
+				}
+			}
+
+			bytes_written += bytes_read;
+
+			if (buffer[bytes_read-1] == '\0' || bytes_written >= content_length) { 
+				break;
+			}
 		}
 		return 1;
 	}
@@ -452,6 +472,8 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
     char buffer[BUF_SIZE];
     ssize_t bytes_read;
     bzero(buffer, sizeof(buffer));
+	int content_length = INT_MAX;
+	ssize_t bytes_written = 0;
 
     while ((bytes_read = read(serverfd, buffer, BUF_SIZE)) > 0) {
         printf("Bytes read: %zd\n", bytes_read);
@@ -461,14 +483,30 @@ int add_file_to_cache(int clientfd, char* req, ParsedURL* url, char* file_hash) 
             close(serverfd);
             return 0;
         }
-		// Forward response to client
-		if (write(clientfd, buffer, bytes_read) < 0) {
-			perror("Error forwarding response to client");
-			close(serverfd);
-			return 0;
+		
+		link_prefetch(buffer); // Prefetch links
+
+		// Get Content-Length from header
+		if (content_length == INT_MAX) {
+			char* content_length_str = strstr(buffer, "Content-Length:");
+			if (content_length_str != NULL) {
+				sscanf(content_length_str, "Content-Length: %d", &content_length);
+				printf("Content-Length: %d\n", content_length);
+			}
 		}
 
-		if (buffer[bytes_read-1] == '\0') { 
+		// Forward response to client
+		if (clientfd != -1) {
+			if (write(clientfd, buffer, bytes_read) < 0) {
+				perror("Error forwarding response to client");
+				close(serverfd);
+				return 0;
+			}
+		}
+
+		bytes_written += bytes_read;
+
+		if (buffer[bytes_read-1] == '\0' || bytes_written >= content_length) { 
 			break;
 		}
 
@@ -541,6 +579,7 @@ int send_file(int clientfd, char* filename) {
             close(fd);
             return -1;
         }
+		link_prefetch(buffer); // Prefetch links
     }
 
 	// Check for errors in reading file
@@ -567,13 +606,48 @@ int send_file(int clientfd, char* filename) {
  */
 int link_prefetch(char* buf) {
 	char* link_start = strstr(buf, "<a href=\"");
-	
+
 	while (link_start != NULL) {
 		link_start += 9; // len("<a href=\"") = 9
 		char* link_end = strchr(link_start, '\"');
 		if (link_end != NULL) {
 			*link_end = '\0';
-			printf("	Link: %s\n", link_start);
+			
+			// fork and call add_file_to_cache 
+			pid_t childpid;
+			char* link = malloc(128);
+			strncpy(link, link_start, link_end - link_start);
+
+			if ( (childpid = fork()) == 0) { // Child process
+				ParsedURL url;
+				char file_hash[33];
+				char req[128];
+				strncpy(url.full_url, link, 128);
+				char filename[128];
+
+				parse_url(link_start, &url);
+				if (strcmp(url.protocol, "http") != 0) {
+					printf("Not http protocol\n");
+					free(link);
+					exit(0);
+				}
+
+				printf("Prefetching %s, length %lu\n", link, strlen(link));
+				strcpy(filename, url.host);
+				strcat(filename, url.page);
+
+				// send GET request
+				sprintf(req, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", link, url.host);
+
+				// Get file hash
+				get_hash_str(filename, file_hash);
+				if (!in_cache(file_hash)) {
+					add_file_to_cache(-1, req, &url, file_hash);
+				}
+				free(link);
+				exit(0);
+			}
+
 			*link_end = '\"'; // Restore end quote
 		}
 
